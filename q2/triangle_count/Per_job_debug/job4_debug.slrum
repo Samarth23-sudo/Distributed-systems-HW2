@@ -1,0 +1,19 @@
+#!/bin/bash
+#SBATCH --job-name=job4_debug
+#SBATCH --output=job4_debug.out
+#SBATCH --error=job4_debug.err
+#SBATCH --ntasks=1
+#SBATCH --time=00:02:00
+#SBATCH --mem=512M
+
+echo "=========================================="
+echo "SLURM_JOB_ID = $SLURM_JOB_ID"
+echo "SLURM_NODELIST = $SLURM_NODELIST"
+echo "=========================================="
+echo ">>> Input: increments.txt"
+
+srun -n1 python3 job4_reducer.py < increments.txt > final.txt
+
+echo ">>> Final output:"
+cat final.txt
+

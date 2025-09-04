@@ -1,0 +1,53 @@
+#!/bin/bash
+#SBATCH --job-name=job1_debug
+#SBATCH --output=job1_debug.out
+#SBATCH --error=job1_debug.err
+#SBATCH --ntasks=4
+#SBATCH --time=00:05:00
+#SBATCH --mem=1G
+
+INPUT=${1:-edges.txt}   # default = edges.txt
+NUM_REDUCERS=2          # keep small for debug
+
+echo ">>> Input file: $INPUT"
+
+# Step 1. Split input
+split -n l/4 $INPUT edges_part_
+
+# Step 2. Mapper + Combiner (inside srun with bash -c so redirection works)
+for f in edges_part_*; do
+    srun -n1 bash -c "./job1_mapper.py < $f | ./job1_combiner.py > $f.map" &
+done
+wait
+
+echo ">>> Mapper + Combiner outputs:"
+ls -l *.map
+head -n 5 edges_part_aa.map
+
+# Step 3. Partition
+cat edges_part_*.map | ./partition.py $NUM_REDUCERS
+
+echo ">>> After partition:"
+ls -l part-*.txt
+head -n 5 part-0.txt
+
+# Step 4. Sort each partition
+for f in part-*.txt; do
+    sort $f > $f.sorted
+done
+
+# Step 5. Reducers
+for f in part-*.sorted; do
+    srun -n1 ./job1_reducer.py < $f > $f.out &
+done
+wait
+
+echo ">>> Reducer outputs:"
+ls -l *.out
+head -n 5 part-0.out
+
+# Step 6. Merge outputs
+cat part-*.out > deg_out.txt
+echo ">>> Final deg_out.txt:"
+cat deg_out.txt
+

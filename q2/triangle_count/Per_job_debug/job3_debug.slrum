@@ -1,0 +1,67 @@
+#!/bin/bash
+#SBATCH --job-name=job3_debug
+#SBATCH --output=job3_debug.out
+#SBATCH --error=job3_debug.err
+#SBATCH --ntasks=4
+#SBATCH --time=00:05:00
+#SBATCH --mem=1G
+
+INPUT=${1:-edges.txt}
+NUM_REDUCERS=2
+
+echo "=========================================="
+echo "SLURM_JOB_ID = $SLURM_JOB_ID"
+echo "SLURM_NODELIST = $SLURM_NODELIST"
+echo "=========================================="
+echo ">>> Input file: $INPUT"
+echo ">>> Using adj_out.txt from Job2"
+
+# Step 1. Wedge mappers (from adjacency lists)
+split -n l/4 adj_out.txt adj_part_
+for f in adj_part_*; do
+    srun -n1 bash -c "python3 job3_mapper_adj.py < $f > $f.w" &
+done
+wait
+
+echo ">>> Wedge mapper outputs:"
+ls -l *.w
+head -n 5 adj_part_aa.w
+
+# Step 2. Edge mappers (from original edges)
+split -n l/4 $INPUT edges3_part_
+for f in edges3_part_*; do
+    srun -n1 bash -c "python3 job3_mapper_edges.py < $f > $f.e" &
+done
+wait
+
+echo ">>> Edge mapper outputs:"
+ls -l *.e
+head -n 5 edges3_part_aa.e
+
+# Step 3. Combine wedge+edge outputs and partition
+cat *.w *.e | ./partition.py $NUM_REDUCERS
+
+echo ">>> After partition:"
+ls -l part-*.txt
+head -n 5 part-0.txt
+
+# Step 4. Sort each partition
+for f in part-*.txt; do
+    sort $f > $f.sorted
+done
+
+# Step 5. Reducers
+for f in part-*.sorted; do
+    srun -n1 ./job3_reducer.py < $f > $f.out &
+done
+wait
+
+echo ">>> Reducer outputs:"
+ls -l *.out
+head -n 5 part-0.out
+
+# Step 6. Merge increments
+cat part-*.out > increments.txt
+echo ">>> Final increments.txt:"
+cat increments.txt
+

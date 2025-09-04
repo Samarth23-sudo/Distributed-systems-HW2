@@ -1,0 +1,56 @@
+#!/bin/bash
+#SBATCH --job-name=job2_debug
+#SBATCH --output=job2_debug.out
+#SBATCH --error=job2_debug.err
+#SBATCH --ntasks=4
+#SBATCH --time=00:05:00
+#SBATCH --mem=1G
+
+INPUT=${1:-edges.txt}
+NUM_REDUCERS=2
+
+echo "=========================================="
+echo "SLURM_JOB_ID = $SLURM_JOB_ID"
+echo "SLURM_NODELIST = $SLURM_NODELIST"
+echo "=========================================="
+echo ">>> Input file: $INPUT"
+
+# Step 1. Run mappers (need deg_out.txt from Job1!)
+split -n l/4 $INPUT edges2_part_
+
+for f in edges2_part_*; do
+    srun -n1 bash -c "python3 job2_mapper.py deg_out.txt < $f > $f.map" &
+done
+wait
+
+echo ">>> Mapper outputs:"
+ls -l *.map
+head -n 5 edges2_part_aa.map
+
+# Step 2. Partition
+cat edges2_part_*.map | ./partition.py $NUM_REDUCERS
+
+echo ">>> After partition:"
+ls -l part-*.txt
+head -n 5 part-0.txt
+
+# Step 3. Sort each partition
+for f in part-*.txt; do
+    sort $f > $f.sorted
+done
+
+# Step 4. Reducers
+for f in part-*.sorted; do
+    srun -n1 ./job2_reducer.py < $f > $f.out &
+done
+wait
+
+echo ">>> Reducer outputs:"
+ls -l *.out
+head -n 5 part-0.out
+
+# Step 5. Merge outputs
+cat part-*.out > adj_out.txt
+echo ">>> Final adj_out.txt:"
+cat adj_out.txt
+

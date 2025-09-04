@@ -1,0 +1,114 @@
+#!/bin/bash
+#SBATCH --job-name=triangle_count
+#SBATCH --output=triangle_count.out
+#SBATCH --error=triangle_count.err
+#SBATCH --ntasks=8          # adjust: how many parallel tasks you want
+#SBATCH --time=00:30:00
+#SBATCH --mem=4G
+
+INPUT=${1:-edges.txt}        # default input is edges.txt if not passed
+NUM_REDUCERS=8               # number of reducer partitions
+
+echo ">>> Input file: $INPUT"
+
+# ======================================================
+# Job 1: Degree Count
+# ======================================================
+echo ">>> Job 1: Degree Count"
+
+# 1. Run mappers in parallel (with local combiner)
+split -n l/16 $INPUT edges_part_
+for f in edges_part_*; do
+    srun -n1 ./job1_mapper.py < $f | ./job1_combiner.py > $f.map &
+done
+wait
+
+# 2. Partition mapper outputs
+cat edges_part_*.map | ./partitioner.py $NUM_REDUCERS
+
+# 3. Sort partitions
+for f in part-*.txt; do
+    sort $f > $f.sorted
+done
+
+# 4. Reducers in parallel
+for f in part-*.sorted; do
+    srun -n1 ./job1_reducer.py < $f > $f.out &
+done
+wait
+
+# 5. Merge reducer outputs
+cat part-*.out > deg_out.txt
+rm -f edges_part_* part-*.*
+echo ">>> Job 1 complete: deg_out.txt"
+
+# ======================================================
+# Job 2: Oriented Adjacency
+# ======================================================
+echo ">>> Job 2: Oriented Adjacency"
+
+split -n l/16 $INPUT edges2_part_
+for f in edges2_part_*; do
+    srun -n1 ./job2_mapper.py deg_out.txt < $f > $f.map &
+done
+wait
+
+cat edges2_part_*.map | ./partition.py $NUM_REDUCERS
+for f in part-*.txt; do
+    sort $f > $f.sorted
+done
+
+for f in part-*.sorted; do
+    srun -n1 ./job2_reducer.py < $f > $f.out &
+done
+wait
+
+cat part-*.out > adj_out.txt
+rm -f edges2_part_* part-*.*
+echo ">>> Job 2 complete: adj_out.txt"
+
+# ======================================================
+# Job 3: Wedge Closure
+# ======================================================
+echo ">>> Job 3: Wedge Closure"
+
+# 1. Wedge mappers
+split -n l/16 adj_out.txt adj_part_
+for f in adj_part_*; do
+    srun -n1 ./job3_mapper_adj.py < $f > $f.w &
+done
+wait
+
+# 2. Edge mappers
+split -n l/16 $INPUT edges3_part_
+for f in edges3_part_*; do
+    srun -n1 ./job3_mapper_edges.py < $f > $f.e &
+done
+wait
+
+# 3. Combine and partition
+cat *.w *.e | ./partition.py $NUM_REDUCERS
+for f in part-*.txt; do
+    sort $f > $f.sorted
+done
+
+# 4. Reducers
+for f in part-*.sorted; do
+    srun -n1 ./job3_reducer.py < $f > $f.out &
+done
+wait
+
+cat part-*.out > increments.txt
+rm -f adj_part_* edges3_part_* *.w *.e part-*.*
+echo ">>> Job 3 complete: increments.txt"
+
+# ======================================================
+# Job 4: Aggregate Counts
+# ======================================================
+echo ">>> Job 4: Aggregate Counts"
+
+srun -n1 ./job4_reducer.py < increments.txt > final.txt
+
+echo ">>> Job 4 complete: final.txt"
+echo ">>> Pipeline finished!"
+
