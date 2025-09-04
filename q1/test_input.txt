@@ -1,0 +1,14 @@
+sbatch scalability_test.slurm
+squeue -u cs3401.43
+scontrol show job 5825
+# List output files
+ls -la scalability_*.txt scalability_error_*.txt
+
+# View the results
+cat scalability_*.txt
+
+# Check for any errors
+cat scalability_error_*.txt
+
+# To move the files to rcp server user
+scp scalability_test.slurm cs3401.43@rce.iiit.ac.in:~/matrix_inversion/q1

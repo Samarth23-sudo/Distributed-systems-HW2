@@ -1,0 +1,25 @@
+# Compiled binaries
+*.out
+*.exe
+matrix_inverse
+
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# IDE files
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*~
+*.bak
+
+# SLURM output files
+slurm-*.out
